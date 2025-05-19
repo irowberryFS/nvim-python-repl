@@ -273,8 +273,19 @@ local send_message = function(filetype, message, config)
             -- For Windows, simulate pressing Enter
             api.nvim_chan_send(M.term.chanid, api.nvim_replace_termcodes("<C-m>", true, false, true))
         else
-            -- Only send one carriage return to avoid extra blank lines
-            api.nvim_chan_send(M.term.chanid, "\r")
+            -- Check if this is a Python code block that needs an extra newline
+            if filetype == "python" and 
+               (message:match("for%s+.*:%s*\n") or 
+                message:match("if%s+.*:%s*\n") or 
+                message:match("while%s+.*:%s*\n") or 
+                message:match("def%s+.*:%s*\n") or
+                message:match("class%s+.*:%s*\n")) then
+                -- Send two carriage returns for code blocks
+                api.nvim_chan_send(M.term.chanid, "\r\r")
+            else
+                -- Only send one carriage return to avoid extra blank lines
+                api.nvim_chan_send(M.term.chanid, "\r")
+            end
         end
     end
 end
