@@ -51,17 +51,37 @@ local get_statement_definition = function(filetype)
 end
 
 local term_open = function(filetype, config, force)
+    -- Ensure we have a clean state before opening a new terminal
+    if force then
+        -- If we're forcing a new terminal, make sure any existing state is cleared
+        M.term.opened = 0
+        M.term.winid = nil
+        M.term.bufid = nil
+        M.term.chanid = nil
+    end
+
     local orig_win = vim.api.nvim_get_current_win()
-    -- Skip check if force is true
-    if M.term.chanid ~= nil and not force then return end
+    
+    -- Skip opening if there's already a valid REPL open (and we're not forcing)
+    if not force and 
+       M.term.chanid ~= nil and 
+       M.term.bufid ~= nil and vim.api.nvim_buf_is_valid(M.term.bufid) and
+       M.term.winid ~= nil and vim.api.nvim_win_is_valid(M.term.winid) then
+        return
+    end
+    
+    -- Create a new split
     if config.vsplit then
         api.nvim_command('vsplit')
     else
         api.nvim_command('split')
     end
+    
     local buf = vim.api.nvim_create_buf(true, true)
     local win = vim.api.nvim_get_current_win()
     vim.api.nvim_win_set_buf(win, buf)
+    
+    -- Set up the REPL command
     local choice = ''
     if config.prompt_spawn then
         choice = vim.fn.input("REPL spawn command: ")
@@ -74,6 +94,8 @@ local term_open = function(filetype, config, force)
             choice = config.spawn_command.lua
         end
     end
+    
+    -- Open the terminal
     local chan = vim.fn.termopen(choice, {
         on_exit = function()
             M.term.chanid = nil
@@ -82,6 +104,8 @@ local term_open = function(filetype, config, force)
             M.term.bufid = nil
         end
     })
+    
+    -- Update the terminal state
     M.term.chanid = chan
     vim.bo.filetype = 'term'
 
@@ -101,11 +125,15 @@ local term_open = function(filetype, config, force)
     -- Additional wait for safety
     vim.wait(20)
 
+    -- Update the rest of the terminal state
     M.term.opened = 1
     M.term.winid = win
     M.term.bufid = buf
+    
     -- Return to original window
-    api.nvim_set_current_win(orig_win)
+    if orig_win and vim.api.nvim_win_is_valid(orig_win) then
+        api.nvim_set_current_win(orig_win)
+    end
 end
 
 -- CONSTRUCTING MESSAGE
@@ -161,25 +189,44 @@ local send_message = function(filetype, message, config)
         term_open(filetype, config)
     end
     
-    -- Check if the terminal is initialized properly
+    -- Check if the terminal is initialized properly and try once to use it before reopening
+    local needs_reopen = false
+    local sent_successfully = false
+    
+    -- Set of checks to determine if we need to reopen
     if M.term.bufid == nil or not vim.api.nvim_buf_is_valid(M.term.bufid) then
-        vim.notify("Terminal buffer is not valid. Reopening REPL.", vim.log.levels.WARN)
-        term_open(filetype, config, true)
-        return
+        vim.notify("Terminal buffer is not valid.", vim.log.levels.WARN)
+        needs_reopen = true
     end
     
-    -- Check if the window is valid
-    if M.term.winid == nil or not vim.api.nvim_win_is_valid(M.term.winid) then
-        vim.notify("Terminal window is not valid. Reopening REPL.", vim.log.levels.WARN)
-        term_open(filetype, config, true)
-        return
+    if not needs_reopen and (M.term.winid == nil or not vim.api.nvim_win_is_valid(M.term.winid)) then
+        vim.notify("Terminal window is not valid.", vim.log.levels.WARN)
+        needs_reopen = true
     end
     
-    -- Check if channel ID is valid
-    if M.term.chanid == nil then
-        vim.notify("Terminal channel is not valid. Reopening REPL.", vim.log.levels.WARN)
+    if not needs_reopen and M.term.chanid == nil then
+        vim.notify("Terminal channel is not valid.", vim.log.levels.WARN)
+        needs_reopen = true
+    end
+    
+    -- Try to reopen only if necessary
+    if needs_reopen then
+        vim.notify("Reopening REPL...", vim.log.levels.INFO)
         term_open(filetype, config, true)
-        return
+        
+        -- After reopening, we should be ready to send messages
+        -- Let's validate that everything is good now
+        if M.term.chanid ~= nil and M.term.bufid ~= nil and M.term.winid ~= nil then
+            if vim.api.nvim_buf_is_valid(M.term.bufid) and vim.api.nvim_win_is_valid(M.term.winid) then
+                sent_successfully = true
+            else
+                vim.notify("Failed to recreate a valid REPL terminal.", vim.log.levels.ERROR)
+                return
+            end
+        else
+            vim.notify("Failed to initialize REPL terminal.", vim.log.levels.ERROR)
+            return
+        end
     end
     
     local line_count = vim.api.nvim_buf_line_count(M.term.bufid)
@@ -298,28 +345,32 @@ M.restart_repl = function(config)
     -- Store the original window
     local orig_win = vim.api.nvim_get_current_win()
     
-    -- Only attempt to restart if a REPL is actually open
+    -- Close any existing REPL
     if M.term.opened == 1 then
-        -- Focus the REPL window
+        -- Focus the REPL window if it exists
         if M.term.winid and vim.api.nvim_win_is_valid(M.term.winid) then
             vim.api.nvim_set_current_win(M.term.winid)
             
             -- Close the current terminal buffer
-            vim.api.nvim_buf_delete(M.term.bufid, {force = true})
-            
-            -- Reset terminal state
-            M.term.opened = 0
-            M.term.winid = nil
-            M.term.bufid = nil
-            M.term.chanid = nil
+            if M.term.bufid and vim.api.nvim_buf_is_valid(M.term.bufid) then
+                vim.api.nvim_buf_delete(M.term.bufid, {force = true})
+            end
         end
     end
     
-    -- Open a new REPL with force=true to bypass the chanid check
+    -- Always reset terminal state completely, even if we couldn't close properly
+    M.term.opened = 0
+    M.term.winid = nil
+    M.term.bufid = nil
+    M.term.chanid = nil
+    
+    -- Now open a new REPL with force=true to bypass the chanid check
     term_open(filetype, config, true)
     
     -- Return to the original window
-    vim.api.nvim_set_current_win(orig_win)
+    if orig_win and vim.api.nvim_win_is_valid(orig_win) then
+        vim.api.nvim_set_current_win(orig_win)
+    end
     
     -- Notify the user
     vim.notify("REPL restarted", vim.log.levels.INFO)
