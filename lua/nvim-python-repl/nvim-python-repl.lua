@@ -184,50 +184,50 @@ local construct_message_from_node = function(filetype)
     return message
 end
 
+-- We're tracking when a restart has occurred to handle the next send_message call specially
+local just_restarted = false
+
 local send_message = function(filetype, message, config)
-    if M.term.opened == 0 then
+    -- If we haven't opened a REPL yet, open one
+    if M.term.opened == 0 and not just_restarted then
         term_open(filetype, config)
     end
     
-    -- Check if the terminal is initialized properly and try once to use it before reopening
-    local needs_reopen = false
-    local sent_successfully = false
+    -- Check terminal state without immediately reopening
+    local valid_terminal = M.term.chanid ~= nil and 
+                          M.term.bufid ~= nil and vim.api.nvim_buf_is_valid(M.term.bufid) and
+                          M.term.winid ~= nil and vim.api.nvim_win_is_valid(M.term.winid)
     
-    -- Set of checks to determine if we need to reopen
-    if M.term.bufid == nil or not vim.api.nvim_buf_is_valid(M.term.bufid) then
-        vim.notify("Terminal buffer is not valid.", vim.log.levels.WARN)
-        needs_reopen = true
-    end
-    
-    if not needs_reopen and (M.term.winid == nil or not vim.api.nvim_win_is_valid(M.term.winid)) then
-        vim.notify("Terminal window is not valid.", vim.log.levels.WARN)
-        needs_reopen = true
-    end
-    
-    if not needs_reopen and M.term.chanid == nil then
-        vim.notify("Terminal channel is not valid.", vim.log.levels.WARN)
-        needs_reopen = true
-    end
-    
-    -- Try to reopen only if necessary
-    if needs_reopen then
-        vim.notify("Reopening REPL...", vim.log.levels.INFO)
-        term_open(filetype, config, true)
-        
-        -- After reopening, we should be ready to send messages
-        -- Let's validate that everything is good now
-        if M.term.chanid ~= nil and M.term.bufid ~= nil and M.term.winid ~= nil then
-            if vim.api.nvim_buf_is_valid(M.term.bufid) and vim.api.nvim_win_is_valid(M.term.winid) then
-                sent_successfully = true
-            else
-                vim.notify("Failed to recreate a valid REPL terminal.", vim.log.levels.ERROR)
+    -- Check window and buffer states more precisely                      
+    if not valid_terminal then
+        if just_restarted then
+            -- If we just restarted, don't open a new REPL - report the error
+            vim.notify("Error: REPL state invalid after restart. Try restarting again.", vim.log.levels.ERROR)
+            just_restarted = false
+            return
+        else
+            -- For other cases, try to recreate the REPL
+            vim.notify("REPL state invalid. Recreating REPL...", vim.log.levels.WARN)
+            -- Force reset the terminal state
+            M.term.opened = 0
+            M.term.winid = nil
+            M.term.bufid = nil
+            M.term.chanid = nil
+            -- Try to open a new terminal
+            term_open(filetype, config, true)
+            
+            -- Verify it worked
+            if not (M.term.chanid ~= nil and 
+                   M.term.bufid ~= nil and vim.api.nvim_buf_is_valid(M.term.bufid) and
+                   M.term.winid ~= nil and vim.api.nvim_win_is_valid(M.term.winid)) then
+                vim.notify("Failed to create REPL terminal.", vim.log.levels.ERROR)
                 return
             end
-        else
-            vim.notify("Failed to initialize REPL terminal.", vim.log.levels.ERROR)
-            return
         end
     end
+    
+    -- Reset the just_restarted flag since we've handled the post-restart send
+    just_restarted = false
     
     local line_count = vim.api.nvim_buf_line_count(M.term.bufid)
     vim.api.nvim_win_set_cursor(M.term.winid, { line_count, 0 })
@@ -371,6 +371,9 @@ M.restart_repl = function(config)
     if orig_win and vim.api.nvim_win_is_valid(orig_win) then
         vim.api.nvim_set_current_win(orig_win)
     end
+    
+    -- Set the just_restarted flag so send_message will behave correctly
+    just_restarted = true
     
     -- Notify the user
     vim.notify("REPL restarted", vim.log.levels.INFO)
