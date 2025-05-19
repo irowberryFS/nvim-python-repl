@@ -25,6 +25,12 @@ send_buffer_to_repl()
 open_repl()
     Function that opens the REPL according to settings.
 
+                                                             *restart_repl()*
+restart_repl()
+    Function that restarts the REPL by closing the current one and opening a new
+    one. This is useful for clearing memory, resetting variables, and refreshing
+    the REPL environment.
+
                                                             *toggle_execute()*
 toggle_execute()
 

@@ -59,4 +59,8 @@ function M.open_repl()
     repl.open_repl(M)
 end
 
+function M.restart_repl()
+    repl.restart_repl(M)
+end
+
 return M

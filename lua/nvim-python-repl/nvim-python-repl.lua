@@ -267,4 +267,37 @@ M.open_repl = function(config)
     term_open(filetype, config)
 end
 
+-- Function to close the current REPL and open a new one
+M.restart_repl = function(config)
+    local filetype = vim.bo.filetype
+    -- Store the original window
+    local orig_win = vim.api.nvim_get_current_win()
+    
+    -- Only attempt to restart if a REPL is actually open
+    if M.term.opened == 1 then
+        -- Focus the REPL window
+        if M.term.winid and vim.api.nvim_win_is_valid(M.term.winid) then
+            vim.api.nvim_set_current_win(M.term.winid)
+            
+            -- Close the current terminal buffer
+            vim.api.nvim_buf_delete(M.term.bufid, {force = true})
+            
+            -- Reset terminal state
+            M.term.opened = 0
+            M.term.winid = nil
+            M.term.bufid = nil
+            M.term.chanid = nil
+        end
+    end
+    
+    -- Open a new REPL
+    term_open(filetype, config)
+    
+    -- Return to the original window
+    vim.api.nvim_set_current_win(orig_win)
+    
+    -- Notify the user
+    vim.notify("REPL restarted", vim.log.levels.INFO)
+end
+
 return M
