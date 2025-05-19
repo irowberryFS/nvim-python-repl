@@ -50,9 +50,10 @@ local get_statement_definition = function(filetype)
     return node
 end
 
-local term_open = function(filetype, config)
+local term_open = function(filetype, config, force)
     local orig_win = vim.api.nvim_get_current_win()
-    if M.term.chanid ~= nil then return end
+    -- Skip check if force is true
+    if M.term.chanid ~= nil and not force then return end
     if config.vsplit then
         api.nvim_command('vsplit')
     else
@@ -159,9 +160,32 @@ local send_message = function(filetype, message, config)
     if M.term.opened == 0 then
         term_open(filetype, config)
     end
+    
+    -- Check if the terminal is initialized properly
+    if M.term.bufid == nil or not vim.api.nvim_buf_is_valid(M.term.bufid) then
+        vim.notify("Terminal buffer is not valid. Reopening REPL.", vim.log.levels.WARN)
+        term_open(filetype, config, true)
+        return
+    end
+    
+    -- Check if the window is valid
+    if M.term.winid == nil or not vim.api.nvim_win_is_valid(M.term.winid) then
+        vim.notify("Terminal window is not valid. Reopening REPL.", vim.log.levels.WARN)
+        term_open(filetype, config, true)
+        return
+    end
+    
+    -- Check if channel ID is valid
+    if M.term.chanid == nil then
+        vim.notify("Terminal channel is not valid. Reopening REPL.", vim.log.levels.WARN)
+        term_open(filetype, config, true)
+        return
+    end
+    
     local line_count = vim.api.nvim_buf_line_count(M.term.bufid)
     vim.api.nvim_win_set_cursor(M.term.winid, { line_count, 0 })
     vim.wait(50)
+    
     if filetype == "python" or filetype == "lua" then
         -- if vim.fn.has('win32') == 1 then
         --     message = message .. "\r\n"
@@ -177,6 +201,7 @@ local send_message = function(filetype, message, config)
         end
         api.nvim_chan_send(M.term.chanid, message)
     end
+    
     if config.execute_on_send then
         vim.wait(20)
         if vim.fn.has('win32') == 1 then
@@ -290,58 +315,8 @@ M.restart_repl = function(config)
         end
     end
     
-    -- Call modified term_open directly without the guard condition
-    local orig_win_open = vim.api.nvim_get_current_win()
-    if config.vsplit then
-        api.nvim_command('vsplit')
-    else
-        api.nvim_command('split')
-    end
-    local buf = vim.api.nvim_create_buf(true, true)
-    local win = vim.api.nvim_get_current_win()
-    vim.api.nvim_win_set_buf(win, buf)
-    local choice = ''
-    if config.prompt_spawn then
-        choice = vim.fn.input("REPL spawn command: ")
-    else
-        if filetype == 'scala' then
-            choice = config.spawn_command.scala
-        elseif filetype == 'python' then
-            choice = config.spawn_command.python
-        elseif filetype == 'lua' then
-            choice = config.spawn_command.lua
-        end
-    end
-    local chan = vim.fn.termopen(choice, {
-        on_exit = function()
-            M.term.chanid = nil
-            M.term.opened = 0
-            M.term.winid = nil
-            M.term.bufid = nil
-        end
-    })
-    M.term.chanid = chan
-    vim.bo.filetype = 'term'
-
-    -- Block until terminal is ready
-    local timeout = 5000 -- 5 seconds timeout
-    local interval = 100 -- Check every 100ms
-    local success = vim.wait(timeout, function()
-        -- Check if terminal buffer has content
-        local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-        return #lines > 0 and lines[1] ~= ""
-    end, interval)
-
-    if not success then
-        vim.notify("Terminal initialization timed out", vim.log.levels.WARN)
-    end
-
-    -- Additional wait for safety
-    vim.wait(20)
-
-    M.term.opened = 1
-    M.term.winid = win
-    M.term.bufid = buf
+    -- Open a new REPL with force=true to bypass the chanid check
+    term_open(filetype, config, true)
     
     -- Return to the original window
     vim.api.nvim_set_current_win(orig_win)
