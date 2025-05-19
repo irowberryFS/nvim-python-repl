@@ -247,12 +247,15 @@ local send_message = function(filetype, message, config)
     vim.api.nvim_win_set_cursor(M.term.winid, { line_count, 0 })
     vim.wait(50)
     
+    -- Trim trailing empty lines from message
+    if filetype == "python" then
+        -- Remove trailing newlines to avoid extra empty lines in output
+        message = message:gsub("\n+$", "")
+    end
+
     if filetype == "python" or filetype == "lua" then
-        -- if vim.fn.has('win32') == 1 then
-        --     message = message .. "\r\n"
-        -- else
+        -- Use bracketed paste mode to send the text properly
         message = api.nvim_replace_termcodes("<esc>[200~" .. message .. "<esc>[201~", true, false, true)
-        -- end
         api.nvim_chan_send(M.term.chanid, message)
     elseif filetype == "scala" then
         if config.spawn_command.scala == "sbt console" then
@@ -268,9 +271,10 @@ local send_message = function(filetype, message, config)
         if vim.fn.has('win32') == 1 then
             vim.wait(20)
             -- For Windows, simulate pressing Enter
-            api.nvim_chan_send(M.term.chanid, api.nvim_replace_termcodes("<C-m><C-m>", true, false, true))
+            api.nvim_chan_send(M.term.chanid, api.nvim_replace_termcodes("<C-m>", true, false, true))
         else
-            api.nvim_chan_send(M.term.chanid, "\r\r")
+            -- Only send one carriage return to avoid extra blank lines
+            api.nvim_chan_send(M.term.chanid, "\r")
         end
     end
 end
@@ -314,6 +318,12 @@ M.send_current_cell_to_repl = function(config)
     local filetype = vim.bo.filetype
     local message_lines = construct_message_from_cell()
     local message = table.concat(message_lines, "\n")
+    
+    -- Remove any unnecessary trailing newlines for Python
+    if filetype == "python" then
+        message = message:gsub("\n+$", "")
+    end
+    
     send_message(filetype, message, config)
 end
 
@@ -332,6 +342,10 @@ M.send_visual_to_repl = function(config)
         concat_message = table.concat(message, "<C-m>")
     else
         concat_message = table.concat(message, "\n")
+        -- Remove any unnecessary trailing newlines
+        if filetype == "python" then
+            concat_message = concat_message:gsub("\n+$", "")
+        end
     end
     send_message(filetype, concat_message, config)
 end
@@ -344,6 +358,10 @@ M.send_buffer_to_repl = function(config)
         concat_message = table.concat(message, "<C-m>")
     else
         concat_message = table.concat(message, "\n")
+        -- Remove any unnecessary trailing newlines
+        if filetype == "python" then
+            concat_message = concat_message:gsub("\n+$", "")
+        end
     end
     send_message(filetype, concat_message, config)
 end
