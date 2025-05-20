@@ -406,11 +406,23 @@ M.send_cell_and_jump_to_next = function(config)
     
     -- Jump to the start of the next cell
     local target_row = boundaries[current_cell_index + 1]
+    local bufnr = vim.api.nvim_get_current_buf()
+    local line_count = vim.api.nvim_buf_line_count(bufnr)
+    
+    -- Safety check to ensure we're not trying to move beyond buffer limits
+    if target_row >= line_count then
+        vim.notify("Cannot move past end of buffer", vim.log.levels.WARN)
+        return
+    end
     
     -- If target is a cell marker, move to the line after it
-    local bufnr = vim.api.nvim_get_current_buf()
     if string.match(vim.api.nvim_buf_get_lines(bufnr, target_row, target_row + 1, false)[1] or "", "^# %%%%") then
         target_row = target_row + 1
+        -- Additional check after incrementing target_row
+        if target_row >= line_count then
+            vim.notify("Cannot move past end of buffer", vim.log.levels.WARN)
+            return
+        end
     end
     
     -- Move cursor to the target row
