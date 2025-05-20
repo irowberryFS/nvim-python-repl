@@ -290,6 +290,30 @@ local send_message = function(filetype, message, config)
     end
 end
 
+-- Function to find all cell boundaries in the buffer
+local get_all_cell_boundaries = function()
+    local bufnr = vim.api.nvim_get_current_buf()
+    local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+    local boundaries = {}
+    
+    -- Always consider line 0 as a start boundary (implicit cell start)
+    table.insert(boundaries, 0)
+    
+    -- Find all explicit cell markers
+    for i = 0, #lines - 1 do
+        if string.match(lines[i + 1], "^# %%%%") then
+            table.insert(boundaries, i)
+        end
+    end
+    
+    -- Always consider end of file as a boundary
+    if boundaries[#boundaries] ~= #lines then
+        table.insert(boundaries, #lines)
+    end
+    
+    return boundaries
+end
+
 -- Function to identify cell boundaries
 local get_current_cell_range = function()
     local bufnr = vim.api.nvim_get_current_buf()
@@ -336,6 +360,156 @@ M.send_current_cell_to_repl = function(config)
     end
     
     send_message(filetype, message, config)
+end
+
+-- Function to send current cell to REPL and jump to the next cell
+M.send_cell_and_jump_to_next = function(config)
+    -- First, execute the current cell
+    local filetype = vim.bo.filetype
+    local message_lines = construct_message_from_cell()
+    local message = table.concat(message_lines, "\n")
+    
+    -- Remove any unnecessary trailing newlines for Python
+    if filetype == "python" then
+        message = message:gsub("\n+$", "")
+    end
+    
+    send_message(filetype, message, config)
+    
+    -- Now find the current cell index and boundaries
+    local current_cell_index, boundaries = get_current_cell_index()
+    
+    -- If we're already at the last cell, nothing more to do
+    if current_cell_index >= #boundaries then
+        vim.notify("Already at the last cell", vim.log.levels.INFO)
+        return
+    end
+    
+    -- Jump to the start of the next cell
+    local target_row = boundaries[current_cell_index + 1]
+    
+    -- If target is a cell marker, move to the line after it
+    local bufnr = vim.api.nvim_get_current_buf()
+    if string.match(vim.api.nvim_buf_get_lines(bufnr, target_row, target_row + 1, false)[1] or "", "^# %%%%") then
+        target_row = target_row + 1
+    end
+    
+    -- Move cursor to the target row
+    vim.api.nvim_win_set_cursor(0, {target_row + 1, 0})
+    
+    -- Visual feedback
+    vim.api.nvim_exec("normal! zz", false)
+end
+
+-- Helper function to find the current cell index
+local get_current_cell_index = function()
+    local bufnr = vim.api.nvim_get_current_buf()
+    local cursor_row = vim.api.nvim_win_get_cursor(0)[1] - 1
+    local boundaries = get_all_cell_boundaries()
+    
+    local current_cell_index = 1
+    for i = 1, #boundaries do
+        if boundaries[i] > cursor_row then
+            current_cell_index = i - 1
+            break
+        elseif i == #boundaries then
+            current_cell_index = i
+        end
+    end
+    
+    return current_cell_index, boundaries
+end
+
+-- Function to send all cells above the current cursor position to REPL
+M.send_above_cells_to_repl = function(config)
+    local filetype = vim.bo.filetype
+    local bufnr = vim.api.nvim_get_current_buf()
+    local current_cell_index, boundaries = get_current_cell_index()
+    
+    -- If we're already at the first cell, nothing to do
+    if current_cell_index <= 1 then
+        vim.notify("No cells above current position", vim.log.levels.INFO)
+        return
+    end
+    
+    -- Process all cells above the current one
+    for i = 1, current_cell_index - 1 do
+        local start_row = boundaries[i] + (string.match(vim.api.nvim_buf_get_lines(bufnr, boundaries[i], boundaries[i] + 1, false)[1] or "", "^# %%%%") and 1 or 0)
+        local end_row = boundaries[i + 1] - 1
+        
+        -- Skip empty cells
+        if end_row >= start_row then
+            local cell_lines = vim.api.nvim_buf_get_lines(bufnr, start_row, end_row + 1, false)
+            local message = table.concat(cell_lines, "\n")
+            
+            -- Remove any unnecessary trailing newlines for Python
+            if filetype == "python" then
+                message = message:gsub("\n+$", "")
+            end
+            
+            -- Send each cell to the REPL
+            send_message(filetype, message, config)
+            
+            -- Add a small delay between cells to ensure proper execution order
+            vim.wait(100)
+        end
+    end
+    
+    vim.notify("Executed " .. (current_cell_index - 1) .. " cells above current position", vim.log.levels.INFO)
+end
+
+-- Function to jump to the previous cell
+M.jump_to_previous_cell = function()
+    local current_cell_index, boundaries = get_current_cell_index()
+    
+    -- If we're already at the first cell, nothing to do
+    if current_cell_index <= 1 then
+        vim.notify("Already at the first cell", vim.log.levels.INFO)
+        return
+    end
+    
+    -- Jump to the start of the previous cell
+    local target_row = boundaries[current_cell_index - 1]
+    
+    -- If target is a cell marker, move to the line after it
+    local bufnr = vim.api.nvim_get_current_buf()
+    if string.match(vim.api.nvim_buf_get_lines(bufnr, target_row, target_row + 1, false)[1] or "", "^# %%%%") then
+        target_row = target_row + 1
+    end
+    
+    -- Move cursor to the target row
+    vim.api.nvim_win_set_cursor(0, {target_row + 1, 0})
+    
+    -- Visual feedback
+    vim.api.nvim_exec("normal! zz", false)
+    vim.notify("Jumped to previous cell", vim.log.levels.INFO)
+end
+
+-- Function to jump to the next cell
+M.jump_to_next_cell = function()
+    local current_cell_index, boundaries = get_current_cell_index()
+    
+    -- If we're already at the last cell, nothing to do
+    if current_cell_index >= #boundaries then
+        vim.notify("Already at the last cell", vim.log.levels.INFO)
+        return
+    end
+    
+    -- Jump to the start of the next cell
+    local target_row = boundaries[current_cell_index + 1]
+    
+    -- If target is a cell marker, move to the line after it
+    local bufnr = vim.api.nvim_get_current_buf()
+    if string.match(vim.api.nvim_buf_get_lines(bufnr, target_row, target_row + 1, false)[1] or "", "^# %%%%") then
+        target_row = target_row + 1
+    end
+    
+    -- Move cursor to the target row
+    vim.api.nvim_win_set_cursor(0, {target_row + 1, 0})
+    
+    -- Visual feedback
+    vim.api.nvim_exec("normal! zz", false)
+    vim.notify("Jumped to next cell", vim.log.levels.INFO)
 end
 
 M.send_statement_definition = function(config)

@@ -19,7 +19,19 @@ send_visual_to_repl()
                                                        *send_buffer_to_repl()*
 send_buffer_to_repl()
 
-    Function to send entire buffer to REPL (will open new REPL if none open). 
+    Function to send entire buffer to REPL (will open new REPL if none open).
+    
+                                                   *send_above_cells_to_repl()*
+send_above_cells_to_repl()
+
+    Function to execute all cells above the current cursor position in the REPL.
+    Cells are identified by '# %%' markers.
+    
+                                                   *send_cell_and_jump_to_next()*
+send_cell_and_jump_to_next()
+
+    Function to execute the current cell in the REPL and then immediately move 
+    the cursor to the next cell. Combines execution and navigation in one step.
 
                                                                 *open_repl()*
 open_repl()

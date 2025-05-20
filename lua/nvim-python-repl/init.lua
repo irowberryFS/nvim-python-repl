@@ -24,6 +24,14 @@ function M.send_current_cell_to_repl()
     repl.send_current_cell_to_repl(M)
 end
 
+function M.send_above_cells_to_repl()
+    repl.send_above_cells_to_repl(M)
+end
+
+function M.send_cell_and_jump_to_next()
+    repl.send_cell_and_jump_to_next(M)
+end
+
 function M.send_statement_definition()
     repl.send_statement_definition(M)
 end

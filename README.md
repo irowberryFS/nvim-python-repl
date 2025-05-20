@@ -63,9 +63,17 @@ vim.keymap.set("n", [your keymap], function() require('nvim-python-repl').open_r
 
 ### Bonus 
 
-- This plugin also works with [nvim-jupyter-client](https://github.com/geg2102/nvim-jupyter-client). There is a function to send a cell under cursor to repl.
+- This plugin also works with [nvim-jupyter-client](https://github.com/geg2102/nvim-jupyter-client). There are several functions for working with cells:
+
 ```[lua]
+-- Send the current cell to the REPL
 vim.keymap.set("n", [your keymap], function() require('nvim-python-repl').send_current_cell_to_repl() end, { desc = "Sends the cell under cursor to repl"})
+
+-- Send all cells above the current cell to the REPL
+vim.keymap.set("n", [your keymap], function() require('nvim-python-repl').send_above_cells_to_repl() end, { desc = "Sends all cells above the current position to repl"})
+
+-- Send the current cell to the REPL and jump to the next cell
+vim.keymap.set("n", [your keymap], function() require('nvim-python-repl').send_cell_and_jump_to_next() end, { desc = "Sends current cell to repl and jumps to next cell"})
 ```
 
 ### Options 
