@@ -348,6 +348,25 @@ local construct_message_from_cell = function()
     return lines
 end
 
+-- Helper function to find the current cell index
+local get_current_cell_index = function()
+    local bufnr = vim.api.nvim_get_current_buf()
+    local cursor_row = vim.api.nvim_win_get_cursor(0)[1] - 1
+    local boundaries = get_all_cell_boundaries()
+    
+    local current_cell_index = 1
+    for i = 1, #boundaries do
+        if boundaries[i] > cursor_row then
+            current_cell_index = i - 1
+            break
+        elseif i == #boundaries then
+            current_cell_index = i
+        end
+    end
+    
+    return current_cell_index, boundaries
+end
+
 -- Function to send current cell to REPL
 M.send_current_cell_to_repl = function(config)
     local filetype = vim.bo.filetype
@@ -399,25 +418,6 @@ M.send_cell_and_jump_to_next = function(config)
     
     -- Visual feedback
     vim.api.nvim_exec("normal! zz", false)
-end
-
--- Helper function to find the current cell index
-local get_current_cell_index = function()
-    local bufnr = vim.api.nvim_get_current_buf()
-    local cursor_row = vim.api.nvim_win_get_cursor(0)[1] - 1
-    local boundaries = get_all_cell_boundaries()
-    
-    local current_cell_index = 1
-    for i = 1, #boundaries do
-        if boundaries[i] > cursor_row then
-            current_cell_index = i - 1
-            break
-        elseif i == #boundaries then
-            current_cell_index = i
-        end
-    end
-    
-    return current_cell_index, boundaries
 end
 
 -- Function to send all cells above the current cursor position to REPL
